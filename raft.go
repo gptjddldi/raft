@@ -1,4 +1,4 @@
-package mai
+package main
 
 import (
 	"fmt"
@@ -54,8 +54,10 @@ type ConsensusModule struct {
 
 	state       CMState
 	currentTerm int
+	votedFor    int
 
 	// Leader에게 AE 받을 때 마다 초기화
+	// 랜덤한 시간 동안 응답을 받지 못하면 Candidate가 됨.
 	electionResetEvent time.Time
 }
 
@@ -113,9 +115,11 @@ func (cm *ConsensusModule) runElectionTimer() {
 }
 
 func (cm *ConsensusModule) startElection() {
+	cm.state = Candidate
 	cm.currentTerm += 1
 	cm.electionResetEvent = time.Now()
 	currentTerm := cm.currentTerm
+	cm.votedFor = cm.id
 	cm.dlog("becomes Candidate (currentTerm=%d); log=%v", currentTerm)
 
 	votesReceived := 1
@@ -175,19 +179,121 @@ func (cm *ConsensusModule) becomeFollower(term int) {
 }
 
 func (cm *ConsensusModule) startLeader() {
+	cm.state = Leader
+	cm.dlog("becomes Leader; term=%d, log=%v", cm.currentTerm)
 
+	go func() {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			cm.leaderSendHeartbeats()
+			<-ticker.C
+
+			cm.mu.Lock()
+			if cm.state != Leader {
+				cm.mu.Unlock()
+				return
+			}
+			cm.mu.Unlock()
+		}
+	}()
 }
 
 func (cm *ConsensusModule) leaderSendHeartbeats() {
+	cm.mu.Lock()
+	currentTerm := cm.currentTerm
+	cm.mu.Unlock()
 
+	for _, peerId := range cm.peerIds {
+		args := AppendEntriesArgs{
+			Term:     currentTerm,
+			LeaderId: cm.id,
+		}
+		go func(peerId int) {
+
+			cm.dlog("sending AppendEntries to %v: ni=%d, args=%+v", peerId, 0, args)
+			var reply AppendEntriesReply
+			// if err := cm.server.Call(peerId, "ConsensusModule.AppendEntries", args, &reply); err == nil {
+			if true {
+				cm.mu.Lock()
+				defer cm.mu.Unlock()
+				if reply.Term > currentTerm {
+					cm.dlog("term out of date in heartbeat reply")
+					cm.becomeFollower(reply.Term)
+					return
+				}
+			}
+		}(peerId)
+	}
 }
 
-func (cm *ConsensusModule) RequestVote() {
+func (cm *ConsensusModule) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.state == Dead {
+		return nil
+	}
 
+	cm.dlog("RequestVote: %+v [currentTerm=%d, votedFor=%d]", args, cm.currentTerm, cm.votedFor)
+
+	if args.Term > cm.currentTerm {
+		cm.dlog("... term out of date in RequestVote")
+		cm.becomeFollower(args.Term)
+	}
+
+	if cm.currentTerm == args.Term && (cm.votedFor == -1 || cm.votedFor == args.CandidateId) {
+		reply.VoteGranted = true
+		cm.votedFor = args.CandidateId
+		cm.electionResetEvent = time.Now()
+	} else {
+		reply.VoteGranted = false
+	}
+
+	reply.Term = cm.currentTerm
+	cm.dlog("... RequestVote reply: %+v", reply)
+	return nil
 }
 
-func (cm *ConsensusModule) AppendEntries() {
+type AppendEntriesArgs struct {
+	Term     int
+	LeaderId int
 
+	PrevLogIndex int
+	PrevLogTerm  int
+	// Entries      []LogEntry
+	LeaderCommit int
+}
+
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
+}
+
+func (cm *ConsensusModule) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.state == Dead {
+		return nil
+	}
+	cm.dlog("AppendEntries: %+v", args)
+
+	if args.Term > cm.currentTerm {
+		cm.dlog("... term out of date in AppendEntries")
+		cm.becomeFollower(args.Term)
+	}
+	reply.Success = false
+	if args.Term == cm.currentTerm {
+		if cm.state != Follower {
+			cm.becomeFollower(args.Term)
+		}
+		cm.electionResetEvent = time.Now()
+		reply.Success = true
+	}
+	reply.Term = cm.currentTerm
+	cm.dlog("AppendEntries reply: %+v", *reply)
+
+	return nil
 }
 
 // dlog logs a debugging message if DebugCM > 0.
