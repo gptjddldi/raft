@@ -50,7 +50,7 @@ type ConsensusModule struct {
 	id      int
 	peerIds []int
 
-	// server *Server
+	server *Server
 
 	state       CMState
 	currentTerm int
@@ -61,11 +61,21 @@ type ConsensusModule struct {
 	electionResetEvent time.Time
 }
 
-func NewConsensusModule() *ConsensusModule {
+func NewConsensusModule(id int, peerIds []int, server *Server, ready <-chan any) *ConsensusModule {
 	cm := new(ConsensusModule)
+	cm.id = id
+	cm.peerIds = peerIds
+	cm.server = server
+	cm.state = Follower
+	cm.votedFor = -1
 
-	cm.electionResetEvent = time.Now()
-	go cm.runElectionTimer()
+	go func() {
+		<-ready
+		cm.mu.Lock()
+		cm.electionResetEvent = time.Now()
+		cm.mu.Unlock()
+		cm.runElectionTimer()
+	}()
 
 	return cm
 }
@@ -132,10 +142,8 @@ func (cm *ConsensusModule) startElection() {
 			}
 			var reply RequestVoteReply
 			cm.dlog("sending RequestVote to %d: %+v", peerId, args)
-			// if err := cm.Server.Call(peerId, "ConsensusModule.RequestVote", args, &reply) && err == nil {
 
-			// }
-			if true {
+			if err := cm.server.Call(peerId, "ConsensusModule.RequestVote", args, &reply); err == nil {
 				cm.mu.Lock()
 				defer cm.mu.Unlock()
 				cm.dlog("received RequestVoteReply %+v", reply)
@@ -214,8 +222,8 @@ func (cm *ConsensusModule) leaderSendHeartbeats() {
 
 			cm.dlog("sending AppendEntries to %v: ni=%d, args=%+v", peerId, 0, args)
 			var reply AppendEntriesReply
-			// if err := cm.server.Call(peerId, "ConsensusModule.AppendEntries", args, &reply); err == nil {
-			if true {
+
+			if err := cm.server.Call(peerId, "ConsensusModule.AppendEntries", args, &reply); err == nil {
 				cm.mu.Lock()
 				defer cm.mu.Unlock()
 				if reply.Term > currentTerm {
