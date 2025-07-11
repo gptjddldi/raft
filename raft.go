@@ -88,8 +88,14 @@ func (cm *ConsensusModule) Stop() {
 	cm.dlog("Consensus Module Stopped")
 }
 
+func (cm *ConsensusModule) Report() (id int, term int, isLeader bool) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.id, cm.currentTerm, cm.state == Leader
+}
+
 func (cm *ConsensusModule) electionTimeout() time.Duration {
-	return time.Duration(150+rand.Intn(150)) * time.Microsecond
+	return time.Duration(150+rand.Intn(150)) * time.Millisecond
 }
 
 func (cm *ConsensusModule) runElectionTimer() {
@@ -181,6 +187,7 @@ func (cm *ConsensusModule) becomeFollower(term int) {
 
 	cm.state = Follower
 	cm.currentTerm = term
+	cm.votedFor = -1
 	cm.electionResetEvent = time.Now()
 
 	go cm.runElectionTimer()

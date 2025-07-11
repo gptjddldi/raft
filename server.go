@@ -76,6 +76,17 @@ func (s *Server) Serve() {
 	}()
 }
 
+func (s *Server) DisconnectPeer(peerId int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.peerClients[peerId] != nil {
+		err := s.peerClients[peerId].Close()
+		s.peerClients[peerId] = nil
+		return err
+	}
+	return nil
+}
+
 func (s *Server) DisconnectAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -92,6 +103,25 @@ func (s *Server) Shutdown() {
 	close(s.quit)
 	s.listener.Close()
 	s.wg.Wait()
+}
+
+func (s *Server) GetListenAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listener.Addr()
+}
+
+func (s *Server) ConnectToPeer(peerId int, addr net.Addr) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.peerClients[peerId] == nil {
+		client, err := rpc.Dial(addr.Network(), addr.String())
+		if err != nil {
+			return err
+		}
+		s.peerClients[peerId] = client
+	}
+	return nil
 }
 
 func (s *Server) Call(id int, serviceMethod string, args any, reply any) error {
