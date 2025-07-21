@@ -25,6 +25,8 @@ type Server struct {
 	ready <-chan any
 	quit  chan any
 	wg    sync.WaitGroup
+
+	commitChan chan<- CommitEntry
 }
 
 func NewServer(serverId int, peerIds []int, ready <-chan any) *Server {
@@ -39,7 +41,7 @@ func NewServer(serverId int, peerIds []int, ready <-chan any) *Server {
 
 func (s *Server) Serve() {
 	s.mu.Lock()
-	s.cm = NewConsensusModule(s.serverId, s.peerIds, s, s.ready)
+	s.cm = NewConsensusModule(s.serverId, s.peerIds, s, s.ready, s.commitChan)
 
 	s.rpcServer = rpc.NewServer()
 	s.rpcProxy = &RPCProxy{cm: s.cm}
