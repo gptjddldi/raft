@@ -17,6 +17,7 @@ const (
 	Dead
 )
 
+// command 를 받아서 로그에 쌓고, 팔로워들에게 전파하는 것. 어떤 커맨드가 과반수 이상 팔로워에게 전파됐다면 그 커맨드를 커밋하는 것.
 func (s CMState) String() string {
 	switch s {
 	case Follower:

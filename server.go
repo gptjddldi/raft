@@ -29,12 +29,13 @@ type Server struct {
 	commitChan chan<- CommitEntry
 }
 
-func NewServer(serverId int, peerIds []int, ready <-chan any) *Server {
+func NewServer(serverId int, peerIds []int, ready <-chan any, commitChan chan<- CommitEntry) *Server {
 	s := &Server{}
 	s.serverId = serverId
 	s.peerIds = peerIds
 	s.ready = ready
 	s.peerClients = make(map[int]*rpc.Client)
+	s.commitChan = commitChan
 	s.quit = make(chan any)
 	return s
 }
